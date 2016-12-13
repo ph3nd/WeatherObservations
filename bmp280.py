@@ -1,13 +1,7 @@
 import Adafruit_GPIO.I2C as I2C
 import time
-i2c = I2C
-device=i2c.get_i2c_device(0x77) # address of BMP
-
-# this value is necessary to calculate the correct height above sealevel
-# its also included in airport wheather information ATIS named as QNH
-# unit is hPa
-QNH=1016
-print("QNH:{:.0f}".format(QNH)+" hPA")
+from lxml import html
+import requests
 
 # power mode
 # POWER_MODE=0 # sleep mode
@@ -51,13 +45,6 @@ T_SB = 4 # 100 500ms
 # T_SB = 6 # 110 2000ms
 # T_SB = 7 # 111 4000ms
 
-
-CONFIG = (T_SB <<5) + (FILTER <<2) # combine bits for config
-CTRL_MEAS = (OSRS_T <<5) + (OSRS_P <<2) + POWER_MODE # combine bits for ctrl_meas
-
-# print ("CONFIG:",CONFIG)
-# print ("CTRL_MEAS:",CTRL_MEAS)
-
 BMP280_REGISTER_DIG_T1 = 0x88
 BMP280_REGISTER_DIG_T2 = 0x8A
 BMP280_REGISTER_DIG_T3 = 0x8C
@@ -83,43 +70,78 @@ BMP280_REGISTER_PRESSDATA_MSB = 0xF7
 BMP280_REGISTER_PRESSDATA_LSB = 0xF8
 BMP280_REGISTER_PRESSDATA_XLSB = 0xF9
 
-if (device.readS8(BMP280_REGISTER_CHIPID) == 0x58): # check sensor id 0x58=BMP280
-    device.write8(BMP280_REGISTER_SOFTRESET,0xB6) # reset sensor
-    time.sleep(0.2) # little break
-    device.write8(BMP280_REGISTER_CONTROL,CTRL_MEAS) #
-    time.sleep(0.2) # little break
-    device.write8(BMP280_REGISTER_CONFIG,CONFIG)  #
-    time.sleep(0.2)
-    # register_control = device.readU8(BMP280_REGISTER_CONTROL) # check the controll register again
-    # register_config = device.readU8(BMP280_REGISTER_CONFIG)# check the controll register again
-    # print("config:",register_config)
-    # print("control:",register_control)
+class BMP280:
+    def __init__(self, i2caddr=0x77):
+        self._i2c = I2C
+        self._device=i2c.get_i2c_device(i2caddr)
 
-    dig_T1 = device.readU16LE(BMP280_REGISTER_DIG_T1) # read correction settings
-    dig_T2 = device.readS16LE(BMP280_REGISTER_DIG_T2)
-    dig_T3 = device.readS16LE(BMP280_REGISTER_DIG_T3)
-    dig_P1 = device.readU16LE(BMP280_REGISTER_DIG_P1)
-    dig_P2 = device.readS16LE(BMP280_REGISTER_DIG_P2)
-    dig_P3 = device.readS16LE(BMP280_REGISTER_DIG_P3)
-    dig_P4 = device.readS16LE(BMP280_REGISTER_DIG_P4)
-    dig_P5 = device.readS16LE(BMP280_REGISTER_DIG_P5)
-    dig_P6 = device.readS16LE(BMP280_REGISTER_DIG_P6)
-    dig_P7 = device.readS16LE(BMP280_REGISTER_DIG_P7)
-    dig_P8 = device.readS16LE(BMP280_REGISTER_DIG_P8)
-    dig_P9 = device.readS16LE(BMP280_REGISTER_DIG_P9)
+        self._config = (T_SB <<5) + (FILTER <<2)
+        self._ctrlmeas = (OSRS_T <<5) + (OSRS_P <<2) + POWER_MODE
 
-    #print("dig_T1:",dig_T1," dig_T2:",dig_T2," dig_T3:",dig_T3)
-    #print("dig_P1:",dig_P1," dig_P2:",dig_P2," dig_P3:",dig_P3)
-    #print(" dig_P4:",dig_P4," dig_P5:",dig_P5," dig_P6:",dig_P6)
-    #print(" dig_P7:",dig_P7," dig_P8:",dig_P8," dig_P9:",dig_P9)
+        #self._QNH = self._GetQNH()
 
-    while True: # loop
-        raw_temp_msb=device.readU8(BMP280_REGISTER_TEMPDATA_MSB) # read raw temperature msb
-        raw_temp_lsb=device.readU8(BMP280_REGISTER_TEMPDATA_LSB) # read raw temperature lsb
-        raw_temp_xlsb=device.readU8(BMP280_REGISTER_TEMPDATA_XLSB) # read raw temperature xlsb
-        raw_press_msb=device.readU8(BMP280_REGISTER_PRESSDATA_MSB) # read raw pressure msb
-        raw_press_lsb=device.readU8(BMP280_REGISTER_PRESSDATA_LSB) # read raw pressure lsb
-        raw_press_xlsb=device.readU8(BMP280_REGISTER_PRESSDATA_XLSB) # read raw pressure xlsb
+        err, errmsg = self._Setup()
+        if err == False:
+            print errmsg
+
+    def GetTemperature(self):
+        raw_temp_msb=device.readU8(BMP280_REGISTER_TEMPDATA_MSB)
+        raw_temp_lsb=device.readU8(BMP280_REGISTER_TEMPDATA_LSB)
+        raw_temp_xlsb=device.readU8(BMP280_REGISTER_TEMPDATA_XLSB)
+
+        # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
+        raw_temp=(raw_temp_msb <<12)+(raw_temp_lsb<<4)+(raw_temp_xlsb>>4)
+
+    def GetPressure(self):
+        raw_press_msb=device.readU8(BMP280_REGISTER_PRESSDATA_MSB)
+        raw_press_lsb=device.readU8(BMP280_REGISTER_PRESSDATA_LSB)
+        raw_press_xlsb=device.readU8(BMP280_REGISTER_PRESSDATA_XLSB)
+
+        # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
+        raw_press=(raw_press_msb <<12)+(raw_press_lsb <<4)+(raw_press_xlsb >>4)
+
+    def _Setup(self):
+        # Check sensor id 0x58=BMP280
+        if (device.readS8(BMP280_REGISTER_CHIPID) == 0x58):
+            # Reset sensor
+            device.write8(BMP280_REGISTER_SOFTRESET,0xB6
+            time.sleep(0.2)
+            device.write8(BMP280_REGISTER_CONTROL,CTRL_MEAS)
+            time.sleep(0.2)
+            device.write8(BMP280_REGISTER_CONFIG,CONFIG)
+            time.sleep(0.2)
+
+            # read correction settings
+            self._dig_T1 = device.readU16LE(BMP280_REGISTER_DIG_T1)
+            self._dig_T2 = device.readS16LE(BMP280_REGISTER_DIG_T2)
+            self._dig_T3 = device.readS16LE(BMP280_REGISTER_DIG_T3)
+            self._dig_P1 = device.readU16LE(BMP280_REGISTER_DIG_P1)
+            self._dig_P2 = device.readS16LE(BMP280_REGISTER_DIG_P2)
+            self._dig_P3 = device.readS16LE(BMP280_REGISTER_DIG_P3)
+            self._dig_P4 = device.readS16LE(BMP280_REGISTER_DIG_P4)
+            self._dig_P5 = device.readS16LE(BMP280_REGISTER_DIG_P5)
+            self._dig_P6 = device.readS16LE(BMP280_REGISTER_DIG_P6)
+            self._dig_P7 = device.readS16LE(BMP280_REGISTER_DIG_P7)
+            self._dig_P8 = device.readS16LE(BMP280_REGISTER_DIG_P8)
+            self._dig_P9 = device.readS16LE(BMP280_REGISTER_DIG_P9)
+        else:
+            return False, "Device not BMP280"
+
+    def _GetQNH(area='Area 60:', url='http://www.bom.gov.au/aviation/forecasts/area-qnh/'):
+        # TODO: UPDATE TO USE THE BOM API
+        '''
+            Gets the QNH value for provided area from provided URL
+            xpath works for current bom.gov.au QNH forcast.
+            Needs to be updated every 3 hours
+        '''
+        r = requests.get(url)
+        tree = html.fromstring(r.content)
+
+        dt = tree.xpath('//dt[contains(text(), "' + area + '")]')[0]
+
+        dd = dt.getnext()
+        qnh = dd.text
+        return qnh
 
         raw_temp=(raw_temp_msb <<12)+(raw_temp_lsb<<4)+(raw_temp_xlsb>>4) # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
         raw_press=(raw_press_msb <<12)+(raw_press_lsb <<4)+(raw_press_xlsb >>4) # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
