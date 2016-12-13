@@ -92,13 +92,48 @@ class BMP280:
         # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
         raw_temp=(raw_temp_msb <<12)+(raw_temp_lsb<<4)+(raw_temp_xlsb>>4)
 
+        # formula for temperature from datasheet
+        var1=(raw_temp/16384.0-dig_T1/1024.0)*dig_T2
+        var2=(raw_temp/131072.0-dig_T1/8192.0)*(raw_temp/131072.0-dig_T1/8192.0)*dig_T3
+        self._temp=(var1+var2)/5120.0
+
+        self._t_fine=(var1+var2) # need for pressure calculation
+
+        return self._temp
+
     def GetPressure(self):
+        self.GetTemperature()
+
         raw_press_msb=device.readU8(BMP280_REGISTER_PRESSDATA_MSB)
         raw_press_lsb=device.readU8(BMP280_REGISTER_PRESSDATA_LSB)
         raw_press_xlsb=device.readU8(BMP280_REGISTER_PRESSDATA_XLSB)
 
         # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
         raw_press=(raw_press_msb <<12)+(raw_press_lsb <<4)+(raw_press_xlsb >>4)
+
+        # formula for pressure from datasheet
+        var1=self._t_fine/2.0-64000.0
+        var2=var1*var1*dig_P6/32768.0
+        var2=var2+var1*dig_P5*2
+        var2=var2/4.0+dig_P4*65536.0
+        var1=(dig_P3*var1*var1/524288.0+dig_P2*var1)/524288.0
+        var1=(1.0+var1/32768.0)*dig_P1
+        press=1048576.0-raw_press
+        press=(press-var2/4096.0)*6250.0/var1
+        var1=dig_P9*press*press/2147483648.0
+        var2=press*dig_P8/32768.0
+
+        self._press=press+(var1+var2+dig_P7)/16.0
+
+        return self._press
+
+    def GetAltitude(self):
+        self.GetPressure()
+
+        self._altitude = 44330.0 * (1.0 - pow(self._press / (self._QNH*100), (1.0/5.255))) # formula for altitude from airpressure
+
+        return self._altitude
+        
 
     def _Setup(self):
         # Check sensor id 0x58=BMP280
@@ -142,49 +177,3 @@ class BMP280:
         dd = dt.getnext()
         qnh = dd.text
         return qnh
-
-        raw_temp=(raw_temp_msb <<12)+(raw_temp_lsb<<4)+(raw_temp_xlsb>>4) # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
-        raw_press=(raw_press_msb <<12)+(raw_press_lsb <<4)+(raw_press_xlsb >>4) # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
-        # print("raw_press_msb:",raw_press_msb," raw_press_lsb:",raw_press_xlsb," raw_press_xlsb:",raw_press_xlsb)
-        # print("raw_temp_msb:",raw_temp_msb,"  raw_temp_lsb:",raw_temp_lsb," raw_temp_xlsb:",raw_temp_xlsb)
-        # print("raw_press",raw_press)
-
-        # the following values are from the calculation example in the datasheet
-        # this values can be used to check the calculation formulas
-        # dig_T1=27504
-        # dig_T2=26435
-        # dig_T3=-1000
-        # dig_P1=36477
-        # dig_P2=-10685
-        # dig_P3=3024
-        # dig_P4=2855
-        # dig_P5=140
-        # dig_P6=-7
-        # dig_P7=15500
-        # dig_P8=-14600
-        # dig_P9=6000
-        # t_fine=128422.2869948
-        # raw_temp=519888
-        # raw_press=415148
-
-        var1=(raw_temp/16384.0-dig_T1/1024.0)*dig_T2 # formula for temperature from datasheet
-        var2=(raw_temp/131072.0-dig_T1/8192.0)*(raw_temp/131072.0-dig_T1/8192.0)*dig_T3 # formula for temperature from datasheet
-        temp=(var1+var2)/5120.0 # formula for temperature from datasheet
-        t_fine=(var1+var2) # need for pressure calculation
-
-        var1=t_fine/2.0-64000.0 # formula for pressure from datasheet
-        var2=var1*var1*dig_P6/32768.0 # formula for pressure from datasheet
-        var2=var2+var1*dig_P5*2 # formula for pressure from datasheet
-        var2=var2/4.0+dig_P4*65536.0 # formula for pressure from datasheet
-        var1=(dig_P3*var1*var1/524288.0+dig_P2*var1)/524288.0 # formula for pressure from datasheet
-        var1=(1.0+var1/32768.0)*dig_P1 # formula for pressure from datasheet
-        press=1048576.0-raw_press # formula for pressure from datasheet
-        press=(press-var2/4096.0)*6250.0/var1 # formula for pressure from datasheet
-        var1=dig_P9*press*press/2147483648.0 # formula for pressure from datasheet
-        var2=press*dig_P8/32768.0 # formula for pressure from datasheet
-        press=press+(var1+var2+dig_P7)/16.0 # formula for pressure from datasheet
-
-        altitude= 44330.0 * (1.0 - pow(press / (QNH*100), (1.0/5.255))) # formula for altitude from airpressure
-        print("temperature:{:.2f}".format(temp)+" C  pressure:{:.2f}".format(press/100)+" hPa   altitude:{:.2f}".format(altitude)+" m")
-
-        time.sleep(5)
