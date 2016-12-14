@@ -73,11 +73,12 @@ BMP280_REGISTER_PRESSDATA_XLSB = 0xF9
 class BMP280:
     def __init__(self, i2caddr=0x77):
         self._i2c = I2C
-        self._device=i2c.get_i2c_device(i2caddr)
+        self._device = self._i2c.get_i2c_device(i2caddr)
 
-        self._config = (T_SB <<5) + (FILTER <<2)
-        self._ctrlmeas = (OSRS_T <<5) + (OSRS_P <<2) + POWER_MODE
+        self._config = (T_SB << 5) + (FILTER << 2)
+        self._ctrlmeas = (OSRS_T << 5) + (OSRS_P << 2) + POWER_MODE
 
+        self._QNH = 1020
         #self._QNH = self._GetQNH()
 
         err, errmsg = self._Setup()
@@ -85,80 +86,84 @@ class BMP280:
             print errmsg
 
     def GetTemperature(self):
-        raw_temp_msb=device.readU8(BMP280_REGISTER_TEMPDATA_MSB)
-        raw_temp_lsb=device.readU8(BMP280_REGISTER_TEMPDATA_LSB)
-        raw_temp_xlsb=device.readU8(BMP280_REGISTER_TEMPDATA_XLSB)
+        raw_temp_msb = self._device.readU8(BMP280_REGISTER_TEMPDATA_MSB)
+        raw_temp_lsb = self._device.readU8(BMP280_REGISTER_TEMPDATA_LSB)
+        raw_temp_xlsb = self._device.readU8(BMP280_REGISTER_TEMPDATA_XLSB)
 
-        # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
-        raw_temp=(raw_temp_msb <<12)+(raw_temp_lsb<<4)+(raw_temp_xlsb>>4)
+        # Combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
+        raw_temp=(raw_temp_msb << 12) + (raw_temp_lsb << 4) + (raw_temp_xlsb >> 4)
 
-        # formula for temperature from datasheet
-        var1=(raw_temp/16384.0-dig_T1/1024.0)*dig_T2
-        var2=(raw_temp/131072.0-dig_T1/8192.0)*(raw_temp/131072.0-dig_T1/8192.0)*dig_T3
-        self._temp=(var1+var2)/5120.0
+        # Formula for temperature from datasheet
+        var1 = (raw_temp/16384.0 - self._dig_T1/1024.0) * self._dig_T2
+        var2 = (raw_temp/131072.0 - self._dig_T1/8192.0) * (raw_temp/131072.0 - self._dig_T1/8192.0) * self._dig_T3
+        self._temp = (var1+var2) / 5120.0
 
-        self._t_fine=(var1+var2) # need for pressure calculation
+        # Need for pressure calculation
+        self._t_fine = (var1+var2)
 
         return self._temp
 
     def GetPressure(self):
         self.GetTemperature()
 
-        raw_press_msb=device.readU8(BMP280_REGISTER_PRESSDATA_MSB)
-        raw_press_lsb=device.readU8(BMP280_REGISTER_PRESSDATA_LSB)
-        raw_press_xlsb=device.readU8(BMP280_REGISTER_PRESSDATA_XLSB)
+        raw_press_msb = self._device.readU8(BMP280_REGISTER_PRESSDATA_MSB)
+        raw_press_lsb = self._device.readU8(BMP280_REGISTER_PRESSDATA_LSB)
+        raw_press_xlsb = self._device.readU8(BMP280_REGISTER_PRESSDATA_XLSB)
 
-        # combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
-        raw_press=(raw_press_msb <<12)+(raw_press_lsb <<4)+(raw_press_xlsb >>4)
+        # Combine 3 bytes  msb 12 bits left, lsb 4 bits left, xlsb 4 bits right
+        raw_press = (raw_press_msb << 12) + (raw_press_lsb << 4) + (raw_press_xlsb >> 4)
 
-        # formula for pressure from datasheet
-        var1=self._t_fine/2.0-64000.0
-        var2=var1*var1*dig_P6/32768.0
-        var2=var2+var1*dig_P5*2
-        var2=var2/4.0+dig_P4*65536.0
-        var1=(dig_P3*var1*var1/524288.0+dig_P2*var1)/524288.0
-        var1=(1.0+var1/32768.0)*dig_P1
-        press=1048576.0-raw_press
-        press=(press-var2/4096.0)*6250.0/var1
-        var1=dig_P9*press*press/2147483648.0
-        var2=press*dig_P8/32768.0
+        # Formula for pressure from datasheet
+        var1 = self._t_fine/2.0 - 64000.0
+        var2 = var1*var1*self._dig_P6 / 32768.0
+        var2 = var2 + var1*self._dig_P5*2
+        var2 = var2/4.0 + self._dig_P4*65536.0
+        var1 = (self._dig_P3*var1*var1/524288.0 + self._dig_P2*var1) / 524288.0
+        var1 = (1.0 + var1/32768.0) * self._dig_P1
+        press = 1048576.0-raw_press
+        press = (press - var2/4096.0) * 6250.0/var1
+        var1 = self._dig_P9*press*press / 2147483648.0
+        var2 = press*self._dig_P8 / 32768.0
 
-        self._press=press+(var1+var2+dig_P7)/16.0
+        self._press = press + (var1+var2+self._dig_P7) / 16.0
 
         return self._press
 
     def GetAltitude(self):
         self.GetPressure()
 
-        self._altitude = 44330.0 * (1.0 - pow(self._press / (self._QNH*100), (1.0/5.255))) # formula for altitude from airpressure
+        # Formula for altitude from airpressure
+        self._altitude = 44330.0 * (1.0 - pow(self._press / (self._QNH*100), (1.0/5.255)))
 
         return self._altitude
         
 
     def _Setup(self):
         # Check sensor id 0x58=BMP280
-        if (device.readS8(BMP280_REGISTER_CHIPID) == 0x58):
+        if (self._device.readS8(BMP280_REGISTER_CHIPID) == 0x58):
             # Reset sensor
-            device.write8(BMP280_REGISTER_SOFTRESET,0xB6
+            self._device.write8(BMP280_REGISTER_SOFTRESET,0xB6)
             time.sleep(0.2)
-            device.write8(BMP280_REGISTER_CONTROL,CTRL_MEAS)
+            self._device.write8(BMP280_REGISTER_CONTROL,self._ctrlmeas)
             time.sleep(0.2)
-            device.write8(BMP280_REGISTER_CONFIG,CONFIG)
+            self._device.write8(BMP280_REGISTER_CONFIG,self._config)
             time.sleep(0.2)
 
-            # read correction settings
-            self._dig_T1 = device.readU16LE(BMP280_REGISTER_DIG_T1)
-            self._dig_T2 = device.readS16LE(BMP280_REGISTER_DIG_T2)
-            self._dig_T3 = device.readS16LE(BMP280_REGISTER_DIG_T3)
-            self._dig_P1 = device.readU16LE(BMP280_REGISTER_DIG_P1)
-            self._dig_P2 = device.readS16LE(BMP280_REGISTER_DIG_P2)
-            self._dig_P3 = device.readS16LE(BMP280_REGISTER_DIG_P3)
-            self._dig_P4 = device.readS16LE(BMP280_REGISTER_DIG_P4)
-            self._dig_P5 = device.readS16LE(BMP280_REGISTER_DIG_P5)
-            self._dig_P6 = device.readS16LE(BMP280_REGISTER_DIG_P6)
-            self._dig_P7 = device.readS16LE(BMP280_REGISTER_DIG_P7)
-            self._dig_P8 = device.readS16LE(BMP280_REGISTER_DIG_P8)
-            self._dig_P9 = device.readS16LE(BMP280_REGISTER_DIG_P9)
+            # Read correction settings
+            self._dig_T1 = self._device.readU16LE(BMP280_REGISTER_DIG_T1)
+            self._dig_T2 = self._device.readS16LE(BMP280_REGISTER_DIG_T2)
+            self._dig_T3 = self._device.readS16LE(BMP280_REGISTER_DIG_T3)
+            self._dig_P1 = self._device.readU16LE(BMP280_REGISTER_DIG_P1)
+            self._dig_P2 = self._device.readS16LE(BMP280_REGISTER_DIG_P2)
+            self._dig_P3 = self._device.readS16LE(BMP280_REGISTER_DIG_P3)
+            self._dig_P4 = self._device.readS16LE(BMP280_REGISTER_DIG_P4)
+            self._dig_P5 = self._device.readS16LE(BMP280_REGISTER_DIG_P5)
+            self._dig_P6 = self._device.readS16LE(BMP280_REGISTER_DIG_P6)
+            self._dig_P7 = self._device.readS16LE(BMP280_REGISTER_DIG_P7)
+            self._dig_P8 = self._device.readS16LE(BMP280_REGISTER_DIG_P8)
+            self._dig_P9 = self._device.readS16LE(BMP280_REGISTER_DIG_P9)
+
+            return True, ""
         else:
             return False, "Device not BMP280"
 
