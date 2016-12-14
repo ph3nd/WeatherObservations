@@ -4,44 +4,42 @@
 # This code is designed to work with the SI7021_I2CS I2C Mini Module available from ControlEverything.com.
 # https://www.controleverything.com/content/Humidity?sku=SI7021_I2CS#tabs-0-product_tabset-2
 
-import smbus
+import Adafruit_GPIO.I2C as I2C
 import time
 
-# Get I2C bus
-bus = smbus.SMBus(1)
+RH_NOHOLD_MASTER = 0xF5
+T_NOHOLD_MASTER = 0xF3
 
-# SI7021 address, 0x40(64)
-#       0xF5(245)   Select Relative Humidity NO HOLD master mode
-bus.write_byte(0x40, 0xF5)
+class SI7021:
 
-time.sleep(0.3)
+    def __init__(self, address=0x40):
+        self.address = 0x40
+        self._i2c = I2C.get_i2c_device(address)
 
-# SI7021 address, 0x40(64)
-# Read data back, 2 bytes, Humidity MSB first
-data0 = bus.read_byte(0x40)
-data1 = bus.read_byte(0x40)
+    def GetRHumidity(self):
+        # Set the device mode for humidity
+        self._i2c.writeRaw8(0x40, RH_NOHOLD_MASTER)
+        time.sleep(0.3)
 
-# Convert the data
-humidity = ((data0 * 256 + data1) * 125 / 65536.0) - 6
+        # Read 2 bytes from the sensor
+        msb = self._i2c.readRaw8()
+        lsb = self._i2c.readRaw8()
+        checksum = self._i2c.readRaw8()
 
-time.sleep(0.3)
+        rawVal = (msb << 8) | lsb
 
-# SI7021 address, 0x40(64)
-#       0xF3(243)   Select temperature NO HOLD master mode
-bus.write_byte(0x40, 0xF3)
+        self._rHumidity = (rawVal  * 125 / 65536.0) - 6
+        return self._rHumidity
 
-time.sleep(0.3)
+    def GetTemperature(self):
+        # Set the device mode for temperature
+        self._i2c.writeRaw8(0x40, T_NOHOLD_MASTER)
+        time.sleep(0.3)
+        
+        msb = self._i2c.readRaw8()
+        lsb = self._i2c.readRaw8()
 
-# SI7021 address, 0x40(64)
-# Read data back, 2 bytes, Temperature MSB first
-data0 = bus.read_byte(0x40)
-data1 = bus.read_byte(0x40)
+        rawVal = (msb << 8) | lsb
 
-# Convert the data
-cTemp = ((data0 * 256 + data1) * 175.72 / 65536.0) - 46.85
-fTemp = cTemp * 1.8 + 32
-
-# Output data to screen
-print "Relative Humidity is : %.2f %%" %humidity
-print "Temperature in Celsius is : %.2f C" %cTemp
-print "Temperature in Fahrenheit is : %.2f F" %fTemp
+        self._temperature = (rawVal  * 175.72 / 65536.0) - 46.85
+        return self._temperature
