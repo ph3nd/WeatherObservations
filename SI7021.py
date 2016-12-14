@@ -18,7 +18,7 @@ class SI7021:
 
     def GetRHumidity(self):
         # Set the device mode for humidity
-        self._i2c.writeRaw8(0x40, RH_NOHOLD_MASTER)
+        self._i2c.writeRaw8(RH_NOHOLD_MASTER)
         time.sleep(0.3)
 
         # Read 2 bytes from the sensor
@@ -33,7 +33,7 @@ class SI7021:
 
     def GetTemperature(self):
         # Set the device mode for temperature
-        self._i2c.writeRaw8(0x40, T_NOHOLD_MASTER)
+        self._i2c.writeRaw8(T_NOHOLD_MASTER)
         time.sleep(0.3)
         
         msb = self._i2c.readRaw8()
