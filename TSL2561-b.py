@@ -104,4 +104,5 @@ while(True):
         elux = 0
 
   print "egainsetting: {}, ambient: {}, infra: {}, lux: {}".format(egainsetting, eambient, einfra, elux) 
+  time.sleep(1)
 
