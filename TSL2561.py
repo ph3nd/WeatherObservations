@@ -203,7 +203,7 @@ class LuxMeter:
             # overflow
             return -1
 
-        return self.calculateLux(self._channel0, self._channel1)
+        return (self.calculateLux(self._channel0, self._channel1), self._schannel0, self._schannel1)
 
     def calculateLux(self, ch0, ch1):
         chScale = 0
@@ -269,12 +269,3 @@ class LuxMeter:
             print("TSL2561.calculateLux: %i" % lux)
 
         return lux
-
-def main():
-    lux = LuxMeter()
-    while (True):
-        print "Lux: %i [vis+ir=%i, ir=%i @ self._gain=%ix, self._timing=%.1fms]" % (lux.readVisibleLux(), lux._channel0, lux._channel1, lux._gain_m, lux._timing_ms)
-        time.sleep(1)
-
-if __name__ == "__main__":
-        main()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from observation import WeatherObservation
-from TSL2561C import Luxmeter
+from TSL2561 import LuxMeter
 from BMP280 import BMP280
 from SI7021 import SI7021
 import requests
@@ -9,7 +9,7 @@ import csv
 
 class Observe:
     def __init__(self):
-        self._luxMeter = Luxmeter()
+        self._luxMeter = LuxMeter()
         self._lux = 0
         self._ambient = 0
         self._ifraRed = 0
@@ -23,7 +23,7 @@ class Observe:
         self._tempHum = 0
 
     def GetObservations(self):
-        self._lux, self._ambient, self._infraRed = self._luxMeter.LuxRead()
+        self._lux, self._ambient, self._infraRed = self._luxMeter.readVisibleLux()
         
         self._pressure = self._presMeter.GetPressure()
         self._tempPres = self._presMeter.GetTemperature()
